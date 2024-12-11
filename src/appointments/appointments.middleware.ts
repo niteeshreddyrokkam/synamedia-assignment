@@ -19,11 +19,11 @@ export function validateBody(req: Request, res: Response, next: NextFunction): a
 
     if (!isBookAppointmentRequest && !isCancelAppointmentRequest) {
         const {originalTimeSlot, newTimeSlot} = req.body;
-        if (!isTimeSlotValid(originalTimeSlot)) {
+        if (!isTimeSlotValid(originalTimeSlot, req.body, true)) {
             return res.status(STATUS_CODES.BAD_REQUEST).json({ message: "Invalid original time slot" });
         }
         
-        if (!isTimeSlotValid(newTimeSlot)) {
+        if (!isTimeSlotValid(newTimeSlot, req.body, false)) {
             return res.status(STATUS_CODES.BAD_REQUEST).json({ message: "Invalid new time slot" });
         }
 
@@ -31,7 +31,7 @@ export function validateBody(req: Request, res: Response, next: NextFunction): a
     }
 
     const { timeSlot } = req.body;
-    if (!isTimeSlotValid(timeSlot)) {
+    if (!isTimeSlotValid(timeSlot, req.body, isCancelAppointmentRequest)) {
         return res.status(STATUS_CODES.BAD_REQUEST).json({ message: "Invalid time slot" });
     }
 
@@ -43,13 +43,38 @@ export function validateBody(req: Request, res: Response, next: NextFunction): a
  * A time slot string is valid if it is in the format "HH:MM AM/PM - HH:MM AM/PM"
  * and the start time is before the end time.
  * @param timeSlot The time slot string to check.
+ * @param payload The request body.
+ * @param skipTimeSlotConflictValidation If true, skip the time slot conflict validation.
  * @returns True if the time slot is valid, false otherwise.
  */
-export function isTimeSlotValid(timeSlot: string): boolean {
+export function isTimeSlotValid(timeSlot: string, payload: any, skipTimeSlotConflictValidation = false): boolean {
     // Split the time slot into from and to times
     const [fromTime, toTime] = timeSlot.split(" - ");
     const fromMinutes = parseTime(fromTime.trim());
     const toMinutes = parseTime(toTime.trim());
+
+    let conflictExists = false;
+    if (!skipTimeSlotConflictValidation) {
+        appointments.forEach((appt) => {
+            const timeSlotStart = parseTime(appt.timeSlot.split(" - ")[0].trim());
+            const timeSlotEnd = parseTime(appt.timeSlot.split(" - ")[1].trim());
+           if (appt.doctorName === payload.doctorName) {
+                if ((timeSlotStart < fromMinutes && timeSlotEnd > fromMinutes) || (timeSlotStart < toMinutes && timeSlotEnd > toMinutes)) {
+                    conflictExists = true;
+                }
+           }
+    
+           if (appt.patient.email === payload.email) {
+            if ((timeSlotStart < fromMinutes && timeSlotEnd > fromMinutes) || (timeSlotStart < toMinutes && timeSlotEnd > toMinutes)) {
+                conflictExists = true;
+            }
+           }
+        });
+    
+        if (conflictExists) {
+            return false;
+        }   
+    }
 
     return fromMinutes <= toMinutes;
 }
